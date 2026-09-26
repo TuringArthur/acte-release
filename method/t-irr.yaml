@@ -1,0 +1,150 @@
+# 不可逆转移登记表（T_irr Registry）
+#
+# 用途：为 `method/formalization.md` §1 的 `T_irr` 提供**声明式、可校验**的来源。
+# 定理 1(a) 要求 `T_irr` 只依赖 ⟨S,A,P,T_irr⟩；本表就是那个 `T_irr` 在规则层面的载体。
+#
+# ⚠ 为什么不可逆性要**显式声明**、不能从 gates.yaml 自动推断：
+#   `enforcement` 字段表达的是"闸门的力度"（block / require_confirmation / warn_and_log），
+#   与"是否不可逆"是两个独立的维度。反例：
+#     * `gate.document-name-whitelist` 是 block，但文书名称写错**可以改了重提**（可逆）；
+#     * `gate.escalation-risk` 只需 require_confirmation，但处罚加重**不可回卷**（不可逆）。
+#   故不可逆性只能由本表逐条声明，并由 `code/tools/derive_t_irr.py` 强制穷尽校验
+#   （18 条闸门必须全部出现；漏一条即报错退出，防止本表随规则库演进而静默过期）。
+#
+# 判据（层级 = §1.1 的"制度可救济度层级"）：
+#   动作型   —— 己方做了 a，后继落入严格更高的层级且不可回退；记 (s,a) ∈ T_irr, a ≠ ⊥
+#   不作为型 —— 己方未做该做的动作（等待 ⊥），后继落入严格更高层级；记 (s,⊥) ∈ T_irr
+#   否       —— 后果可补正/可重提/可撤回，层级不变
+
+version: 1
+derived_from:
+  # 源路径不入库（本仓库内规范源为 rules/gates.yaml），只记基名与期望条数
+  source_basename: gates.yaml
+  expected_gate_count: 18
+  # 层级的语义定义，供人复核判据是否一致
+  level_semantics: 制度可救济度层级（剩余救济手段的多少 / 已承受制度性不利的轻重）
+
+# ── 本引擎范围内的不可逆转移（定理 1 的 Shield 由这 3 条导出）────────
+t_irr:
+  - gate_id: gate.escalation-risk
+    yaojue: 稳
+    kind: active                      # 动作型
+    action: 对行政机关提起诉讼或提起复议
+    level_change: 处罚层级 → 更高（加重处罚 / 转为刑事案件）
+    criterion: >
+      起诉/复议这一己方动作可能诱致行政机关加重处罚或移送刑事，且加重后不可减轻、
+      转刑事后不可退回行政。属"己方动作使自身处境跨层级不可逆恶化"。
+    in_scope: true
+    source_page: "15-16"
+    rule_ref: ch1.3(2)
+
+  - gate_id: gate.suspension-of-execution
+    yaojue: 稳
+    kind: passive                     # 不作为型
+    action: 未在起诉同时提交停止执行申请
+    level_change: 标的物存续 → 已灭失（拆除/销毁，胜诉亦无意义）
+    criterion: >
+      行政诉讼以不停止执行为原则；不作为（未申请停止执行）会让执行继续推进至
+      标的物灭失，事后无法回复。属"不作为跨层级不可逆恶化"。
+    in_scope: true
+    source_page: "20"
+    rule_ref: ch1.3(7)
+
+  - gate_id: gate.statute-of-limitations
+    yaojue: 全                          # ⚠ 标注为"全"，但结构上属诉讼族
+    kind: passive
+    action: 未在法定期限内起诉/上诉（等待至期限届满）
+    level_change: 起诉通道开放 → 关闭
+    criterion: >
+      诉讼时效/上诉期/再审期/举证期届满即不可回复（法定期限为不变期间），
+      层级从"可诉"落入"不可诉"。属"不作为跨层级不可逆恶化"。
+    in_scope: true
+    source_page: "162"
+    rule_ref: ch9.8E
+    note: >
+      `yaojue` 字段标"全"（第九章），但本章是**咨询接案**语境；期限届满的结构本质
+      是诉讼族的不可逆转移，故本引擎收它入 `T_irr`。
+
+# ── F1 范围内但**不**构成不可逆转移（附判据，防止"看着像风险就算进去"）──
+not_t_irr:
+  - gate_id: gate.startup-three-questions
+    yaojue: 稳
+    reason: >
+      程序性闸门（未完成三问不得起草起诉状）。拦下的是"过早进入下一阶段"，
+      没有跨层级的状态转移，补做三问即可继续——可逆。
+
+  - gate_id: gate.evidence-precheck
+    yaojue: 细
+    reason: >
+      拦的是"未完成质控即提交证据"。命中不利/非法材料时阻断提交，材料仍在己方手中，
+      可复核后重提或另择证据，层级不变，可逆。
+      （对比：若某类证据一经提交即构成不可撤回的自认，那收缩的是主张空间，
+      不是制度可救济度层级，本表同样不收。）
+
+  - gate_id: gate.law-citation-precision
+    yaojue: 细
+    reason: >
+      引法笼统属文书质量问题，可在答辩前补正。`enforcement` 为 warn_and_log，
+      且不产生制度层级的不可逆变化。
+
+# ── 超出本引擎范围的闸门（本引擎不据其建盾；此处仍逐条分类以满足穷尽校验）──
+# 记录方式：domain 记该闸门所属的业务领域，relevance 记本引擎是否仍需在实现里感知。
+out_of_scope:
+  - gate_id: gate.three-tier-necessity
+    domain: 刑事辩护
+    relevance: none
+    note: 刑事辩护的三层递进顺序，属非单调策略域。
+  - gate_id: gate.guilty-plea-backfire
+    domain: 刑事辩护
+    relevance: none
+    note: >
+      结构上是不可逆动作（不认罪会关闭缓刑与认罪认罚通道），但发生在**刑事辩护**，
+      由刑事辩护侧的形式化承担。本引擎的 `T_irr` 刻意不收它，收了会让两侧的形式化重叠。
+  - gate_id: gate.meeting-compliance
+    domain: 刑事辩护
+    relevance: none
+    note: 执业合规黑名单，无跨层级转移。
+  - gate_id: gate.intake-gap
+    domain: 信息采集
+    relevance: none
+    note: 信息缺口闸门，不跨层级。
+  - gate_id: gate.mediation-legality
+    domain: 调解
+    relevance: none
+    note: 调解合法性硬校验，属硬约束域，非不可逆转移。
+  - gate_id: gate.concession-authority
+    domain: 调解
+    relevance: none
+    note: 让步授权，属目标重构的授权条件。
+  - gate_id: gate.appeal-routing
+    domain: 申诉再审路由
+    relevance: aware
+    note: >
+      超期即失权，**结构上**是不可逆转移（与 gate.statute-of-limitations 同型）。
+      但申诉再审的管辖路由不在本引擎范围内，本引擎只需感知"期限不可延长"这一事实，
+      不重复建表。
+  - gate_id: gate.appeal-baseless-deterrence
+    domain: 执业伦理
+    relevance: none
+    note: 无理缠讼劝阻，属执业伦理判断。
+  - gate_id: gate.document-name-whitelist
+    domain: 文书效力
+    relevance: none
+    note: >
+      文书名称白名单。文书名称写错可改了重提（可逆），故**不是**不可逆转移；
+      其"不予立案"的后果由文书效力侧的验证承担。
+  - gate_id: gate.adverse-admission
+    domain: 文书效力
+    relevance: aware
+    note: >
+      提交即固定的自认约束。虽然也是"动作致不可回卷"，但收缩的是**主张空间**
+      （认知与承诺维度），不是制度可救济度层级，故不入本引擎的 `T_irr`。
+      本引擎只需感知"文书一旦提交会固定事实"，以免策略与文书相互冲突。
+  - gate_id: gate.advisor-four-redlines
+    domain: 顾问服务合规
+    relevance: none
+    note: 顾问执业红线，属预防服务族。
+  - gate_id: gate.no-result-guarantee
+    domain: 执业伦理
+    relevance: none
+    note: 不得承诺结果，属执业伦理，不构成不可逆转移。

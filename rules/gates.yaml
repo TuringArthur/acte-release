@@ -1,0 +1,247 @@
+# 闸门注册表（Gate Registry）
+#
+# 本文件是 Hook Engineering 的声明式来源：把《十大要诀》中最不可退让的约束
+# 固化为"在什么时机、以多强的力度、拦下什么动作"。
+#
+# enforcement 语义：
+#   block                —— 直接阻断，Agent 不得继续；须由确定性代码判定
+#   require_confirmation —— 需当事人/律师显式确认方可继续，确认须留痕
+#   warn_and_log         —— 放行，但必须输出风险提示并记录
+#
+# hook 时机（对齐宿主 Agent 框架的 hook 生命周期）：
+#   SessionStart  —— 装载案件时
+#   PhaseEntry    —— 办案阶段转移时
+#   ToolUse:Pre   —— 调用工具/产出文书之前
+#   ToolUse:Post  —— 工具返回/产出之后
+#
+# 设计原则：伦理与程序底线用 block 硬编码，不交给模型裁量；
+#          需要权衡的商业/策略判断用 require_confirmation，把决定权交还给人。
+
+version: 2024-03        # 规则依据（书出版/法条状态）版本；法律修订后须复核
+gates:
+
+  # ─────────────── 稳：行政诉讼的决策与风险 ───────────────
+  - id: gate.startup-three-questions
+    name: 启动三问闸门
+    yaojue: 稳
+    hook: PhaseEntry
+    when: next_phase == "document" and case_type == "administrative"
+    enforcement: block
+    message: >
+      未完成"要不要打 → 在哪里打（复议或诉讼）→ 怎么打（主攻方向）"三问，
+      不得起草起诉状。三问结论须写入策略备忘录。
+    rule_ref: ch1.3(1)
+    source_page: "17-23"
+
+  - id: gate.escalation-risk
+    name: 行政诉讼升级风险闸门
+    yaojue: 稳
+    hook: ToolUse:Pre
+    when: 拟对行政机关提起诉讼 or 拟提起复议
+    enforcement: require_confirmation
+    message: >
+      识别到可能出现加重处罚、转为刑事案件、或被告为日常监管机关等情形，
+      必须输出升级风险提示，并由当事人书面确认后方可继续。
+    rule_ref: ch1.3(2)
+    source_page: "15-16"
+
+  - id: gate.suspension-of-execution
+    name: 停止执行申请强制项
+    yaojue: 稳
+    hook: ToolUse:Post
+    when: 已生成行政诉讼起诉状
+    enforcement: warn_and_log
+    message: >
+      行政诉讼以不停止执行为原则。起诉的同时应依《行政诉讼法》第56条
+      法定条件提交书面停止执行申请，防止拆除/销毁等不可逆执行致胜诉无意义。
+    rule_ref: ch1.3(7)
+    source_page: "20"
+
+  # ─────────────── 准：刑事辩护的精准与合规 ───────────────
+  - id: gate.three-tier-necessity
+    name: 三层递进强制顺序
+    yaojue: 准
+    hook: PhaseEntry
+    when: case_type == "criminal" and next_phase == "strategy"
+    enforcement: block
+    message: >
+      辩护主张必须按"罪与非罪 → 此罪与彼罪 → 罪重罪轻"逐层评估；
+      未完成前一层不得跳层，且每一层结论须有依据。
+    rule_ref: ch2.5(1)
+    source_page: "35"
+
+  - id: gate.guilty-plea-backfire
+    name: '「不认罪」反噬警示'
+    yaojue: 准
+    hook: ToolUse:Pre
+    when: 拟提出无罪辩护
+    enforcement: require_confirmation
+    message: >
+      动辄无罪辩护可能致被告人因"不认罪"关闭缓刑/认罪认罚从宽通道（蔡某案教训）。
+      评估无罪方案时必须同步评估该副作用，并将权衡结果留痕。
+    rule_ref: ch2.5(2)
+    source_page: "35-36"
+
+  - id: gate.meeting-compliance
+    name: 会见合规黑名单
+    yaojue: 准
+    hook: ToolUse:Pre
+    when: 律师会见在押人员
+    enforcement: block
+    message: >
+      禁止：传递手机、展示照片/信件、传递纸条、在财产文书上签字、传递银行卡密码、
+      携带食物香烟。取保候审中律师不得担任担保人。
+    rule_ref: ch2.5(5)
+    source_page: "40"
+
+  # ─────────────── 全：咨询接案的信息与时效 ───────────────
+  - id: gate.statute-of-limitations
+    name: 时效已过闸门
+    yaojue: 全
+    hook: PhaseEntry
+    when: next_phase in ["strategy", "document"]
+    enforcement: block
+    message: >
+      发现已过诉讼时效/上诉期/再审期/举证期等法定期限的，不得建议直接起诉；
+      应另谋使债务人重新确认债务等补正路径，或改走相应救济程序。
+    rule_ref: ch9.8E
+    source_page: "162"
+
+  - id: gate.intake-gap
+    name: Intake 缺口闸门
+    yaojue: 全
+    hook: PhaseEntry
+    when: next_phase == "strategy"
+    enforcement: block
+    message: >
+      Intake 必填项（时间/地点/当事人/事件/目标需求/材料）未闭合，或存在未判明
+      是否影响结论的关键缺口时，不得输出确定性策略结论。
+    rule_ref: ch9.8A
+    source_page: "127-131"
+
+  # ─────────────── 细：证据与主张 ───────────────
+  - id: gate.evidence-precheck
+    name: 证据提交前质控
+    yaojue: 细
+    hook: ToolUse:Pre
+    when: 拟提交证据
+    enforcement: block
+    message: >
+      提交前须完成：原件核对、取得途径合法性、两面性证据识别、整册不利材料扫描；
+      任一命中"不利/非法"即阻断提交并复核。
+    rule_ref: R4-7
+    source_page: "149-152"
+
+  - id: gate.law-citation-precision
+    name: 法条精确引用校验
+    yaojue: 细
+    hook: ToolUse:Post
+    when: 已生成含法律引用的文书
+    enforcement: warn_and_log
+    message: >
+      引法必须精确到"条/款/项"，禁止"根据《民法典》的规定"式笼统表述；
+      法律空白处应补充高级别法院裁判案例。
+    rule_ref: R4-11
+    source_page: "155-157"
+
+  # ─────────────── 和：调解仲裁 ───────────────
+  - id: gate.mediation-legality
+    name: 调解合法性硬校验
+    yaojue: 和
+    hook: ToolUse:Pre
+    when: 拟达成调解/和解协议
+    enforcement: block
+    message: >
+      以下任一不通过即拒绝达成：违背自愿；以放弃诉权为条件；
+      违反禁止性规定或公序良俗；损害国家/社会/他人利益；脱离客观事实。
+    rule_ref: ch7.5D
+    source_page: "269"
+
+  - id: gate.concession-authority
+    name: 让步授权闸门
+    yaojue: 和
+    hook: ToolUse:Pre
+    when: 拟在谈判/调解中作出实体让步
+    enforcement: require_confirmation
+    message: >
+      绝不触碰当事人明确底线与重大实体权利；实体处分一律需授权，
+      重大处分需另行书面授权。
+    rule_ref: ch7.5B
+    source_page: "272-274"
+
+  # ─────────────── 韧：申诉再审 ───────────────
+  - id: gate.appeal-routing
+    name: 申诉管辖与期限路由校验
+    yaojue: 韧
+    hook: PhaseEntry
+    when: next_phase == "procedure" and posture == "生效裁判救济"
+    enforcement: block
+    message: >
+      按案型/主体/期限路由受理机关，校验是否越级或超期：
+      民事 6 个月内向上一级（人数众多/双方公民可向原审）；
+      刑事向法院或检察院申诉；行政 6 个月；检察监督民事 2 年不变期间、行政 6 个月。
+    rule_ref: C5-1/C5-2/C5-10
+    source_page: "184-197"
+
+  - id: gate.appeal-baseless-deterrence
+    name: 无理缠讼劝阻
+    yaojue: 韧
+    hook: ToolUse:Pre
+    when: 拟接受申诉委托
+    enforcement: require_confirmation
+    message: >
+      判决正确、当事人所述无据的应尽量避免接手并建议服判；不得为经济利益"调词架讼"；
+      不得毫无根据"拍胸承诺"。群体性申诉案件代理须报送管理部门备案。
+    rule_ref: C5-9
+    source_page: "198"
+
+  # ─────────────── 精：文书 ───────────────
+  - id: gate.document-name-whitelist
+    name: 文书名称白名单
+    yaojue: 精
+    hook: ToolUse:Post
+    when: 已生成法律文书
+    enforcement: block
+    message: >
+      文书名称必须在白名单内，命中黑名单即报错（如民事："起诉状"✅ / "起诉书"❌；
+      再审："再审申请书"✅ / "民事申诉状"❌）。再审申请书格式不符将不予立案。
+    rule_ref: C10-1
+    source_page: "350-372"
+
+  - id: gate.adverse-admission
+    name: 不利自认与固定性检查
+    yaojue: 精
+    hook: ToolUse:Pre
+    when: 拟在文书中写入某项事实
+    enforcement: require_confirmation
+    message: >
+      文书提交即固定（禁反言）。写入事实前须评估：是否构成对己方不利的自认、
+      是否可能侵犯他人权益、是否会在日后被对方引用。命中须经确认并留痕。
+    rule_ref: C10-14
+    source_page: "350-351"
+
+  # ─────────────── 勤：法律顾问 ───────────────
+  - id: gate.advisor-four-redlines
+    name: 顾问执业四条红线
+    yaojue: 勤
+    hook: ToolUse:Pre
+    when: 提供法律顾问服务
+    enforcement: block
+    message: >
+      利益冲突→回避终止；保密→不得对外/在客户间泄露；
+      不得借顾问身份排斥同行；除顾问费外不得获取交易/诉讼/竞拍/参股利益。
+      对不当或违法要求应拒绝并阐明依据。
+    rule_ref: ch8.6C
+    source_page: "309-310,321"
+
+  - id: gate.no-result-guarantee
+    name: 不得承诺结果
+    yaojue: 勤
+    hook: ToolUse:Post
+    when: 生成对当事人的意见/答复
+    enforcement: block
+    message: >
+      不得作出"包赢""保证办成"式承诺；书面意见须含风险提示与适用范围条款。
+      客户强烈意愿不等于法律意见。
+    rule_ref: ch8.5 / ch9.8E
+    source_page: "306-307,162"

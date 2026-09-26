@@ -1,0 +1,16 @@
+{
+  "name": "@ctd-la/acte-dsh",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ACTE 的 DSH 运行时插件（不可逆动作护栏 / 安全盾 + 计划发射端）",
+  "license": "CC-BY-NC-SA-4.0",
+  "exports": {
+    "./shield": "./acte-shield.js",
+    "./plan": "./acte-plan.js",
+    "./protocol": "./acte-protocol.js"
+  },
+  "files": [
+    "acte-*.js"
+  ]
+}
